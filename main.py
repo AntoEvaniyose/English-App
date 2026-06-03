@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
 from pathlib import Path
+from contextlib import asynccontextmanager  # ← add this
 import os
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -19,14 +20,32 @@ from app.db.base import Base
 from app.db.session import engine
 from app.mcp.server import mcp
 
+# =========================
+# MCP App (must be before FastAPI init)
+# =========================
+mcp_app = mcp.http_app(transport="streamable-http")  # ← move up here
 
-app = FastAPI(title=settings.APP_NAME, debug=settings.DEBUG)
+# =========================
+# Lifespan (3 lines, nothing more)
+# =========================
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    async with mcp_app.lifespan(mcp_app):
+        yield
+
+# =========================
+# FastAPI App
+# =========================
+app = FastAPI(
+    title=settings.APP_NAME,
+    debug=settings.DEBUG,
+    lifespan=lifespan  # ← only change to FastAPI() call
+)
 
 # =========================
 # Paths
 # =========================
 BASE_DIR = Path(__file__).resolve().parent
-
 
 # =========================
 # Static Files
@@ -36,7 +55,6 @@ if not os.path.exists("static"):
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 app.mount("/media", StaticFiles(directory="media"), name="media")
-app.mount("/mcp", mcp.http_app())
 
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(ValidationError, pydantic_validation_exception_handler)
@@ -44,6 +62,7 @@ app.add_exception_handler(HTTPException, custom_http_exception_handler)
 app.add_exception_handler(StarletteHTTPException, custom_http_exception_handler)
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 
+app.mount("/", mcp_app)  # exposes /mcp
 
 @app.get("/")
 def root() -> dict[str, str]:
