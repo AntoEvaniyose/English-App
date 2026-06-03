@@ -48,7 +48,10 @@ def get_memory(
 
         results = collection.query(
             query_texts=[query],
-            n_results=limit
+            n_results=limit,
+            where={
+                "user_id": str(user_id)
+            }
         )
 
         documents = results.get(
