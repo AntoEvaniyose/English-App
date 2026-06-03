@@ -1,0 +1,17 @@
+# === Virtual environment ===
+/.venv
+english_venv/
+
+# === Python bytecode and cache ===
+__pycache__
+
+# === Environment variables ===
+.env
+
+# === Static and media files ===
+static/
+media/
+
+# === VS Code ===
+.vscode/
+ 
