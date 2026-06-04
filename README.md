@@ -223,7 +223,7 @@ DATABASE_URL=postgresql://username:password@localhost:5432/english_db
 
 SECRET_KEY=your_secret_key
 
-GOOGLE_API_KEY=your_google_gemini_api_key
+GROQ_API_KEY=your_GROQ_api_key
 ```
 
 ---

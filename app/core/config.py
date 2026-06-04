@@ -38,8 +38,11 @@ class Settings(BaseSettings):
     CELERY_BROKER_URL: str
     CELERY_RESULT_BACKEND: str
 
+    # GROQ api key
+    GROQ_API_KEY: str
+
     # Google api key
-    GOOGLE_API_KEY: str
+    # GOOGLE_API_KEY: str
 
     
     # jwt
