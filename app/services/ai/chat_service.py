@@ -1,7 +1,4 @@
-import json
-
 from groq import Groq
-from fastmcp import Client
 
 from app.core.config import settings
 from app.core.logger import get_logger
@@ -17,32 +14,6 @@ client = Groq(
     api_key=settings.GROQ_API_KEY
 )
 
-# for model in client.models.list():
-#     print(model.name)
-
-def build_tool_schema(tool):
-
-    schema = (
-        tool.inputSchema
-        if hasattr(tool, "inputSchema")
-        else {}
-    )
-
-    if hasattr(schema, "model_dump"):
-        schema = schema.model_dump()
-
-    return {
-        "type": "function",
-        "function": {
-            "name": tool.name,
-            "description": tool.description or "",
-            "parameters": schema or {
-                "type": "object",
-                "properties": {}
-            }
-        }
-    }
-
 
 async def ask_ai(
     db,
@@ -56,9 +27,9 @@ async def ask_ai(
             f"[USER_MESSAGE] user_id={user.id} message={message}"
         )
 
-        # =========================
+        # =====================================
         # MEMORY
-        # =========================
+        # =====================================
 
         memories = get_memory(
             user_id=user.id,
@@ -74,49 +45,25 @@ async def ask_ai(
             f"[MEMORY_COUNT] {len(memories)}"
         )
 
-        # =========================
-        # MCP CLIENT
-        # =========================
+        # =====================================
+        # SYSTEM PROMPT
+        # =====================================
 
-        async with Client(
-            "http://127.0.0.1:8000/mcp"
-        ) as mcp_client:
-
-            # =========================
-            # LOAD MCP TOOLS
-            # =========================
-
-            available_tools = (
-                await mcp_client.list_tools()
-            )
-
-            tools = [
-                build_tool_schema(tool)
-                for tool in available_tools
-            ]
-
-            logger.info(
-                f"[MCP_TOOLS] Loaded {len(tools)} tools"
-            )
-
-            # =========================
-            # SYSTEM PROMPT
-            # =========================
-
-            system_prompt = f"""
-You are an English Teacher and English Conversation Partner.
+        system_prompt = f"""
+You are a professional English Teacher and English Conversation Partner.
 
 ABOUT THE PLATFORM:
 This is an English Learning Platform.
 
-Your job is to:
+YOUR ROLE:
 - Teach English.
-- Help users improve speaking skills.
-- Help users improve vocabulary.
-- Help users improve grammar.
-- Help users improve pronunciation.
-- Conduct English conversations.
-- Recommend English learning packages using MCP tools when appropriate.
+- Practice English conversations.
+- Improve speaking skills.
+- Improve vocabulary.
+- Improve grammar.
+- Improve pronunciation.
+- Correct mistakes politely.
+- Encourage users to answer in English.
 
 CURRENT USER:
 User ID = {user.id}
@@ -124,7 +71,7 @@ User ID = {user.id}
 PREVIOUS CONVERSATION:
 {memory_context}
 
-ENGLISH LEARNING TOPICS:
+ALLOWED TOPICS:
 
 1. At a Restaurant
 2. At a Library
@@ -147,73 +94,82 @@ ENGLISH LEARNING TOPICS:
 19. Vocabulary Practice
 20. Speaking Practice
 
-AVAILABLE TOOLS:
-- get_packages
-- get_package
-
 RULES:
 
-1. You are ONLY an English teacher.
+1. You are ONLY an English Teacher.
 
-2. Answer ONLY English-learning related questions.
+2. ONLY discuss the allowed English-learning topics listed above.
 
-3. If a user asks about:
+3. If the user asks about anything outside these topics such as:
+   - Medical questions
    - Hospitals
-   - Medical advice
    - Diseases
    - Politics
    - Religion
    - Programming
    - Coding
    - Finance
-   - Stock market
-   - Legal advice
+   - Cryptocurrency
+   - Stock Market
+   - Legal Advice
    - Engineering
-   - General knowledge unrelated to English learning
+   - Mathematics
+   - Science
+   - Current News
+   - Any non-English-learning topic
 
    DO NOT answer the question.
 
-4. Instead reply:
+4. Instead reply exactly:
 
-   "I am your English Teacher. I can help you practice English through conversations, vocabulary, grammar, speaking exercises, and English-learning topics such as restaurants, travel, festivals, job interviews, childhood memories, and planning trips."
+"I am your English Teacher. I can help you practice English through conversation, vocabulary, grammar, pronunciation, speaking exercises, job interviews, travel planning, restaurants, libraries, festivals, childhood memories, and other English-learning topics."
 
-5. If the user asks:
-   - "Show me packages"
-   - "Recommend a package"
-   - "What courses are available"
+5. When a user chooses a topic:
+   - Act as a conversation partner.
+   - Ask ONE question at a time.
+   - Wait for the user's answer.
+   - Continue naturally.
 
-   Use MCP tools.
+6. When a user makes a grammar mistake:
+   - Correct the sentence politely.
+   - Explain briefly.
+   - Continue the conversation.
 
-6. If the user asks:
-   - "Let's practice English"
-   - "Talk with me"
-   - "Start a conversation"
+7. For 'Let's Plan a Trip':
+   Ask questions such as:
+   - Where would you like to travel?
+   - Why do you want to visit that place?
+   - When would you like to go?
+   - How long will you stay?
+   - What activities would you like to do?
+   - What food would you like to try?
+   - Who will travel with you?
 
-   Begin an English conversation.
+8. For 'Practice a Job Interview':
+   Act as an interviewer.
+   Ask one interview question at a time.
 
-7. Always encourage the user to reply in English.
+9. For 'At a Restaurant':
+   Role-play as a waiter or customer.
 
-8. Correct grammar mistakes gently.
+10. For 'At a Library':
+    Role-play as a librarian or visitor.
 
-9. Never invent package information.
+11. Always keep the conversation educational.
 
-10. Only use information returned by MCP tools.
-
-11. When users refer to:
-    - first package
-    - second package
-    - that package
-    - previous package
-
-    use PREVIOUS CONVERSATION to understand the reference.
-
-12. Keep responses friendly, encouraging, and educational.
+12. Keep responses short and conversational.
 
 CURRENT MESSAGE:
 {message}
 """
 
-            messages = [
+        # =====================================
+        # GROQ CALL
+        # =====================================
+
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
                 {
                     "role": "system",
                     "content": system_prompt
@@ -222,127 +178,36 @@ CURRENT MESSAGE:
                     "role": "user",
                     "content": message
                 }
-            ]
+            ],
+            temperature=0.7,
+            max_tokens=500
+        )
 
-            # =========================
-            # FIRST GROQ CALL
-            # =========================
+        reply = (
+            response.choices[0]
+            .message
+            .content
+        )
 
-            response = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=messages,
-                tools=tools,
-                tool_choice="auto"
-            )
+        logger.info(
+            f"[AI_RESPONSE] {reply}"
+        )
 
-            # =========================
-            # TOOL LOOP
-            # =========================
+        # =====================================
+        # SAVE MEMORY
+        # =====================================
 
-            while (
-                response.choices[0].message.tool_calls
-            ):
+        save_memory(
+            user_id=user.id,
+            user_message=message,
+            ai_response=reply
+        )
 
-                tool_calls = (
-                    response.choices[0]
-                    .message
-                    .tool_calls
-                )
+        logger.info(
+            "[MEMORY_SAVED]"
+        )
 
-                messages.append(
-                    response.choices[0]
-                    .message
-                )
-
-                for tool_call in tool_calls:
-
-                    tool_name = (
-                        tool_call.function.name
-                    )
-
-                    tool_args = json.loads(
-                        tool_call.function.arguments
-                    )
-
-                    logger.info(
-                        f"[MCP_TOOL_CALL] {tool_name}"
-                    )
-
-                    logger.info(
-                        f"[MCP_TOOL_ARGS] {tool_args}"
-                    )
-
-                    # =====================
-                    # EXECUTE MCP TOOL
-                    # =====================
-
-                    result = (
-                        await mcp_client.call_tool(
-                            tool_name,
-                            arguments=tool_args
-                        )
-                    )
-
-                    raw_output = (
-                        result.content[0].text
-                    )
-
-                    logger.info(
-                        f"[MCP_TOOL_RESULT] {raw_output}"
-                    )
-
-                    messages.append(
-                        {
-                            "tool_call_id": tool_call.id,
-                            "role": "tool",
-                            "name": tool_name,
-                            "content": raw_output
-                        }
-                    )
-
-                # =====================
-                # SEND TOOL RESULT
-                # BACK TO GROQ
-                # =====================
-
-                response = (
-                    client.chat.completions.create(
-                        model="llama-3.3-70b-versatile",
-                        messages=messages,
-                        tools=tools,
-                        tool_choice="auto"
-                    )
-                )
-
-            # =========================
-            # FINAL RESPONSE
-            # =========================
-
-            reply = (
-                response.choices[0]
-                .message
-                .content
-            )
-
-            logger.info(
-                f"[GROQ_RESPONSE] {reply}"
-            )
-
-            # =========================
-            # SAVE MEMORY
-            # =========================
-
-            save_memory(
-                user_id=user.id,
-                user_message=message,
-                ai_response=reply
-            )
-
-            logger.info(
-                "[MEMORY_SAVED]"
-            )
-
-            return reply
+        return reply
 
     except Exception as e:
 
